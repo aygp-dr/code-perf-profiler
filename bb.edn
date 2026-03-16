@@ -1,0 +1,8 @@
+{:paths ["src"]
+ :deps {org.babashka/cli {:mvn/version "0.8.61"}}
+ :tasks
+ {:override-builtin true
+  run {:doc "Profile code and identify performance hotspots"
+       :task (apply (requiring-resolve 'code_perf_profiler.core/-main) *command-line-args*)}
+  scan {:doc "Scan current directory"
+        :task (apply (requiring-resolve 'code_perf_profiler.core/-main) ["--dir" "."])}}}

@@ -1,7 +1,12 @@
 (ns code_perf_profiler.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.spec.test.alpha :as stest]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [code_perf_profiler.core :as core]))
+
+;; Exercise every s/fdef :args spec while the unit tests run.
+(use-fixtures :once
+  (fn [f] (stest/instrument) (try (f) (finally (stest/unstrument)))))
 
 ;; ---------- Unit tests for individual analyzers ----------
 
@@ -166,7 +171,7 @@
   (let [results (core/scan-directory "test/fixtures")]
     (is (>= (count results) 4) "Should find all fixture files")
     (is (= (:file (first results))
-            (-> (filter #(> (:score %) 0) results) first :file))
+           (-> (filter #(> (:score %) 0) results) first :file))
         "Results should be sorted by score descending")))
 
 ;; ---------- Output formatting ----------
@@ -197,6 +202,14 @@
         output (core/format-text results 30)]
     (is (not (str/includes? output "a.py")) "Below-threshold file should be excluded")
     (is (str/includes? output "b.py"))))
+
+(deftest test-format-text-unreadable-file
+  (testing "analyze-file's error entry is reported, not an NPE"
+    (let [output (core/format-text [{:file "locked.py" :error "Permission denied" :score 0}] 0)]
+      (is (str/includes? output "locked.py"))
+      (is (str/includes? output "[ERROR] Could not analyze: Permission denied"))))
+  (testing "an exception without a message"
+    (is (str/includes? (core/format-text [{:file "x.py" :error nil :score 0}] 0) "x.py"))))
 
 (deftest test-format-json-output
   (let [results [{:file "test.py" :score 30 :lines 50 :function-count 3

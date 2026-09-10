@@ -166,7 +166,7 @@
   (let [results (core/scan-directory "test/fixtures")]
     (is (>= (count results) 4) "Should find all fixture files")
     (is (= (:file (first results))
-            (-> (filter #(> (:score %) 0) results) first :file))
+           (-> (filter #(> (:score %) 0) results) first :file))
         "Results should be sorted by score descending")))
 
 ;; ---------- Output formatting ----------

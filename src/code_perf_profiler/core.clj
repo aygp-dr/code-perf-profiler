@@ -207,28 +207,28 @@
     (if (empty? filtered)
       (format "No files with performance risk score >= %d" threshold)
       (str/join "\n"
-        (concat
-          ["Performance Analysis Results"
-           (apply str (repeat 60 "="))]
-          (mapcat
-            (fn [r]
-              (concat
-                [(format "\nFile: %s" (:file r))
-                 (format "  Score: %d/100 | Lines: %d | Functions: %d | Avg length: %.0f"
-                         (:score r) (:lines r) (:function-count r) (double (:avg-function-length r)))]
-                (when (seq (:deeply-nested-loops r))
-                  [(format "  [WARN] Deeply nested loops: %d" (count (:deeply-nested-loops r)))])
-                (when (seq (:repeated-string-concat r))
-                  [(format "  [WARN] String concat in loops: %d" (count (:repeated-string-concat r)))])
-                (when (seq (:n-plus-one-patterns r))
-                  [(format "  [CRIT] N+1 query patterns: %d" (count (:n-plus-one-patterns r)))])
-                (when (seq (:large-collections r))
-                  [(format "  [INFO] Large collections without streaming: %d" (count (:large-collections r)))])
-                (when (seq (:sync-io-in-loops r))
-                  [(format "  [WARN] Synchronous I/O in loops: %d" (count (:sync-io-in-loops r)))])))
-            filtered)
-          [(str "\n" (apply str (repeat 60 "=")))]
-          [(format "Files analyzed: %d | Files with issues: %d" (count results) (count filtered))])))))
+                (concat
+                 ["Performance Analysis Results"
+                  (apply str (repeat 60 "="))]
+                 (mapcat
+                  (fn [r]
+                    (concat
+                     [(format "\nFile: %s" (:file r))
+                      (format "  Score: %d/100 | Lines: %d | Functions: %d | Avg length: %.0f"
+                              (:score r) (:lines r) (:function-count r) (double (:avg-function-length r)))]
+                     (when (seq (:deeply-nested-loops r))
+                       [(format "  [WARN] Deeply nested loops: %d" (count (:deeply-nested-loops r)))])
+                     (when (seq (:repeated-string-concat r))
+                       [(format "  [WARN] String concat in loops: %d" (count (:repeated-string-concat r)))])
+                     (when (seq (:n-plus-one-patterns r))
+                       [(format "  [CRIT] N+1 query patterns: %d" (count (:n-plus-one-patterns r)))])
+                     (when (seq (:large-collections r))
+                       [(format "  [INFO] Large collections without streaming: %d" (count (:large-collections r)))])
+                     (when (seq (:sync-io-in-loops r))
+                       [(format "  [WARN] Synchronous I/O in loops: %d" (count (:sync-io-in-loops r)))])))
+                  filtered)
+                 [(str "\n" (apply str (repeat 60 "=")))]
+                 [(format "Files analyzed: %d | Files with issues: %d" (count results) (count filtered))])))))
 
 (defn summarize-findings [findings]
   (mapv #(select-keys % [:line :depth :loop-start]) findings))
@@ -236,18 +236,18 @@
 (defn format-json [results threshold]
   (let [filtered (filter #(>= (:score %) threshold) results)]
     (json/generate-string
-      {:summary {:total-files      (count results)
-                 :files-with-issues (count filtered)
-                 :threshold         threshold}
-       :results (mapv (fn [r]
-                        (-> r
-                            (update :deeply-nested-loops summarize-findings)
-                            (update :repeated-string-concat summarize-findings)
-                            (update :n-plus-one-patterns summarize-findings)
-                            (update :large-collections summarize-findings)
-                            (update :sync-io-in-loops summarize-findings)))
-                      filtered)}
-      {:pretty true})))
+     {:summary {:total-files      (count results)
+                :files-with-issues (count filtered)
+                :threshold         threshold}
+      :results (mapv (fn [r]
+                       (-> r
+                           (update :deeply-nested-loops summarize-findings)
+                           (update :repeated-string-concat summarize-findings)
+                           (update :n-plus-one-patterns summarize-findings)
+                           (update :large-collections summarize-findings)
+                           (update :sync-io-in-loops summarize-findings)))
+                     filtered)}
+     {:pretty true})))
 
 (defn format-edn [results threshold]
   (let [filtered (filter #(>= (:score %) threshold) results)]

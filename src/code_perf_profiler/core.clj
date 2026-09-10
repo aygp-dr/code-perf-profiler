@@ -1,8 +1,10 @@
 (ns code_perf_profiler.core
   (:require [babashka.cli :as cli]
             [babashka.fs :as fs]
+            [clojure.spec.alpha :as s]
             [clojure.string :as str]
-            [cheshire.core :as json]))
+            [cheshire.core :as json]
+            [code-perf-profiler.specs :as specs]))
 
 (def supported-extensions
   #{".py" ".js" ".ts" ".java" ".rb" ".php" ".clj" ".cljs"})
@@ -11,6 +13,14 @@
   (let [name (str (fs/file-name path))]
     (when-let [idx (str/last-index-of name ".")]
       (subs name idx))))
+
+(s/fdef file-extension
+  :args (s/cat :path ::specs/path-like)
+  :ret (s/nilable string?)
+  :fn (fn [{{[_ path] :path} :args ret :ret}]
+        (or (nil? ret)
+            (and (str/starts-with? ret ".")
+                 (str/ends-with? (str (fs/file-name path)) ret)))))
 
 ;; ---------- Analyzers ----------
 
@@ -28,6 +38,12 @@
                    [])]
     (count (filter (fn [line] (some #(re-find % line) patterns)) lines))))
 
+(s/fdef count-functions
+  :args ::specs/detector-args
+  :ret nat-int?
+  :fn (fn [{{:keys [lines]} :args ret :ret}]
+        (<= ret (count lines))))
+
 (defn detect-function-starts [lines ext]
   (let [patterns (case ext
                    ".py"          [#"^\s*(async\s+)?def\s+\w+"]
@@ -41,6 +57,13 @@
                     (when (some #(re-find % line) patterns) idx))
                   lines)))
 
+(s/fdef detect-function-starts
+  :args ::specs/detector-args
+  :ret (s/coll-of nat-int? :kind sequential?)
+  :fn (fn [{{:keys [lines]} :args ret :ret}]
+        (and (every? #(< % (count lines)) ret)
+             (or (empty? ret) (apply < ret)))))
+
 (defn avg-function-length [lines ext]
   (let [starts (detect-function-starts lines ext)
         n      (count lines)]
@@ -49,6 +72,12 @@
       (let [boundaries (map vector starts (concat (rest starts) [n]))
             lengths    (map (fn [[s e]] (- e s)) boundaries)]
         (double (/ (reduce + lengths) (count lengths)))))))
+
+(s/fdef avg-function-length
+  :args ::specs/detector-args
+  :ret ::specs/avg-function-length
+  :fn (fn [{{:keys [lines]} :args ret :ret}]
+        (<= ret (count lines))))
 
 (defn- loop-pattern [ext]
   (case ext
@@ -91,6 +120,11 @@
             (swap! brace-depth - closes)))
         (filter #(>= (:depth %) 3) @results)))))
 
+(s/fdef detect-deeply-nested-loops
+  :args ::specs/detector-args
+  :ret (s/coll-of ::specs/nested-loop :kind sequential?)
+  :fn specs/findings-within-input?)
+
 (defn- in-loop-detector
   "Run `pred` on each line; when inside a loop body (within `window` lines), collect findings."
   [lines ext pred window]
@@ -121,6 +155,11 @@
                       (fn [line] (some #(re-find % line) concat-pats))
                       20)))
 
+(s/fdef detect-repeated-string-concat
+  :args ::specs/detector-args
+  :ret (s/coll-of ::specs/loop-finding :kind vector?)
+  :fn specs/findings-within-input?)
+
 (defn detect-n-plus-one [lines ext]
   (let [db-pats [#"(?i)\b(select|insert|update|delete)\b.*\b(from|into|where|set)\b"
                  #"(?i)\.query\(" #"(?i)\.execute\(" #"(?i)\.find\(" #"(?i)\.findOne\("
@@ -130,6 +169,11 @@
     (in-loop-detector lines ext
                       (fn [line] (some #(re-find % line) db-pats))
                       30)))
+
+(s/fdef detect-n-plus-one
+  :args ::specs/detector-args
+  :ret (s/coll-of ::specs/loop-finding :kind vector?)
+  :fn specs/findings-within-input?)
 
 (defn detect-large-collections-without-streaming [lines ext]
   (let [pats (case ext
@@ -145,6 +189,11 @@
                       {:line (inc idx) :text (str/trim line)}))
                   lines)))
 
+(s/fdef detect-large-collections-without-streaming
+  :args ::specs/detector-args
+  :ret (s/coll-of ::specs/line-finding :kind sequential?)
+  :fn specs/findings-within-input?)
+
 (defn detect-sync-io-in-loops [lines ext]
   (let [io-pats (case ext
                   ".py"          [#"\bopen\(" #"\.read\(" #"\.write\(" #"\brequests\." #"\burllib\b"]
@@ -158,6 +207,11 @@
                       (fn [line] (some #(re-find % line) io-pats))
                       30)))
 
+(s/fdef detect-sync-io-in-loops
+  :args ::specs/detector-args
+  :ret (s/coll-of ::specs/loop-finding :kind vector?)
+  :fn specs/findings-within-input?)
+
 ;; ---------- Scoring ----------
 
 (defn calculate-score [analysis]
@@ -169,6 +223,18 @@
         fnlen    (let [avg (:avg-function-length analysis)]
                    (cond (> avg 50) 10 (> avg 30) 5 (> avg 20) 2 :else 0))]
     (min 100 (+ nested concat nplus1 lgcoll syncio fnlen))))
+
+(s/fdef calculate-score
+  :args (s/cat :analysis ::specs/analysis)
+  :ret ::specs/score
+  :fn (fn [{{:keys [analysis]} :args ret :ret}]
+        ;; 0 exactly when nothing was found and functions are short
+        (= (zero? ret)
+           (and (every? empty? ((juxt :deeply-nested-loops :repeated-string-concat
+                                      :n-plus-one-patterns :large-collections
+                                      :sync-io-in-loops)
+                                analysis))
+                (<= (:avg-function-length analysis) 20)))))
 
 ;; ---------- File / directory scanning ----------
 
@@ -191,6 +257,10 @@
         (catch Exception e
           {:file (str path) :error (.getMessage e) :score 0})))))
 
+(s/fdef analyze-file
+  :args (s/cat :path ::specs/path-like)
+  :ret (s/nilable ::specs/file-result))
+
 (defn scan-directory [dir]
   (->> (fs/glob dir "**")
        (filter fs/regular-file?)
@@ -199,6 +269,10 @@
        (remove nil?)
        (sort-by :score >)
        vec))
+
+(s/fdef scan-directory
+  :args (s/cat :dir ::specs/path-like)
+  :ret ::specs/results)
 
 ;; ---------- Output formatting ----------
 
@@ -230,8 +304,20 @@
                  [(str "\n" (apply str (repeat 60 "=")))]
                  [(format "Files analyzed: %d | Files with issues: %d" (count results) (count filtered))])))))
 
+(s/fdef format-text
+  :args (s/cat :results ::specs/results :threshold ::specs/threshold)
+  :ret string?)
+
 (defn summarize-findings [findings]
   (mapv #(select-keys % [:line :depth :loop-start]) findings))
+
+(s/fdef summarize-findings
+  ;; nil for the {:file :error :score 0} entries format-json passes through
+  :args (s/cat :findings (s/nilable ::specs/findings))
+  :ret (s/coll-of map? :kind vector?)
+  :fn (fn [{{:keys [findings]} :args ret :ret}]
+        (and (= (count findings) (count ret))
+             (every? #(every? #{:line :depth :loop-start} (keys %)) ret))))
 
 (defn format-json [results threshold]
   (let [filtered (filter #(>= (:score %) threshold) results)]
@@ -249,12 +335,24 @@
                      filtered)}
      {:pretty true})))
 
+(s/fdef format-json
+  :args (s/cat :results ::specs/results :threshold ::specs/threshold)
+  :ret string?
+  :fn (fn [{{:keys [results]} :args ret :ret}]
+        (= (count results) (get-in (json/parse-string ret true) [:summary :total-files]))))
+
 (defn format-edn [results threshold]
   (let [filtered (filter #(>= (:score %) threshold) results)]
     (pr-str {:summary {:total-files      (count results)
                        :files-with-issues (count filtered)
                        :threshold         threshold}
              :results (vec filtered)})))
+
+(s/fdef format-edn
+  :args (s/cat :results ::specs/results :threshold ::specs/threshold)
+  :ret string?
+  :fn (fn [{{:keys [results]} :args ret :ret}]
+        (= (count results) (get-in (read-string ret) [:summary :total-files]))))
 
 ;; ---------- CLI ----------
 
@@ -286,6 +384,9 @@
         (println output)
         (let [issues (filter #(> (:score %) 0) results)]
           (System/exit (if (seq issues) 1 0)))))))
+
+(s/fdef -main
+  :args (s/* string?))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))

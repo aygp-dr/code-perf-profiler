@@ -1,7 +1,12 @@
 (ns code_perf_profiler.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.spec.test.alpha :as stest]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [code_perf_profiler.core :as core]))
+
+;; Exercise every s/fdef :args spec while the unit tests run.
+(use-fixtures :once
+  (fn [f] (stest/instrument) (try (f) (finally (stest/unstrument)))))
 
 ;; ---------- Unit tests for individual analyzers ----------
 

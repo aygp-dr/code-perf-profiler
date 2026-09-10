@@ -203,6 +203,14 @@
     (is (not (str/includes? output "a.py")) "Below-threshold file should be excluded")
     (is (str/includes? output "b.py"))))
 
+(deftest test-format-text-unreadable-file
+  (testing "analyze-file's error entry is reported, not an NPE"
+    (let [output (core/format-text [{:file "locked.py" :error "Permission denied" :score 0}] 0)]
+      (is (str/includes? output "locked.py"))
+      (is (str/includes? output "[ERROR] Could not analyze: Permission denied"))))
+  (testing "an exception without a message"
+    (is (str/includes? (core/format-text [{:file "x.py" :error nil :score 0}] 0) "x.py"))))
+
 (deftest test-format-json-output
   (let [results [{:file "test.py" :score 30 :lines 50 :function-count 3
                   :avg-function-length 15.0

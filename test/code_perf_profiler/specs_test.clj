@@ -13,15 +13,8 @@
 (def ^:private side-effecting
   #{`sut/analyze-file `sut/scan-directory `sut/-main})
 
-;; TODO(spec): (format-text [{:file "" :error nil :score 0}] 0) throws a
-;; NullPointerException: an unreadable file's {:file :error :score 0} entry
-;; from analyze-file has no :avg-function-length for (double ...).
-(def ^:private known-failing
-  #{`sut/format-text})
-
 (defn- checkable []
-  (remove (into side-effecting known-failing)
-          (stest/enumerate-namespace 'code_perf_profiler.core)))
+  (remove side-effecting (stest/enumerate-namespace 'code_perf_profiler.core)))
 
 (deftest fdefs-hold-under-generative-testing
   (let [results (stest/check (checkable) check-opts)]

@@ -288,8 +288,10 @@
                   (fn [r]
                     (concat
                      [(format "\nFile: %s" (:file r))
-                      (format "  Score: %d/100 | Lines: %d | Functions: %d | Avg length: %.0f"
-                              (:score r) (:lines r) (:function-count r) (double (:avg-function-length r)))]
+                      (if (contains? r :error)
+                        (format "  [ERROR] Could not analyze: %s" (:error r))
+                        (format "  Score: %d/100 | Lines: %d | Functions: %d | Avg length: %.0f"
+                                (:score r) (:lines r) (:function-count r) (double (:avg-function-length r))))]
                      (when (seq (:deeply-nested-loops r))
                        [(format "  [WARN] Deeply nested loops: %d" (count (:deeply-nested-loops r)))])
                      (when (seq (:repeated-string-concat r))
